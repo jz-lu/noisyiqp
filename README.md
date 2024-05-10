@@ -1,4 +1,4 @@
-# NoisyIQP
+# NoisyIQP (v1.0.0)
 This is *NoisyIQP*, a tiny Python repository dedicated to the study of sparse instantaneous quantum polytime (IQP) 
 circuits and their output distributions. Following the theoretical work by [Bremner, Montanaro, and Shepherd](https://quantum-journal.org/papers/q-2017-04-25-8/), we 
 provide an implementation of both the quantum algorithm (circuit sampling) and classical algorithm (Fourier analysis) for sampling from a
@@ -15,7 +15,7 @@ EPSILON: noise rate of quantum circuit.
 ALPHA: a "spread" parameter of the distribution. We have set this to 1 for convenience. 
 GAMMA: a probability rate coefficient for CS gates. Refrain from changing this.
 ```
-The smaller `DELTA` and `EPSILON` are and the larger `ALPHA` is, the faster the scaling of the classical algorithm. The exponent scales as `log(ALPHA / DELTA) / EPSILON`, so exercise caution increasing `ALPHA` and decreasing `DELTA` and exercise extreme caution decreasing `EPSILON`. As of now, the parameters are
+The smaller `DELTA` and `EPSILON` are and the larger `ALPHA` is, the faster the scaling of the classical algorithm. The exponent scales as `3 + 3*log(ALPHA / DELTA) / EPSILON`, so exercise caution increasing `ALPHA` and decreasing `DELTA` and exercise extreme caution decreasing `EPSILON`. As of now, the parameters are
 set so that the sampling algorithm scalings like `O(n^3)`. But the overhead is very large, and will take around 30 seconds even for 3 qubits (compare 0.01s for the quantum algorithm). The easiest thing to do would be to increase `ALPHA` by an order of magnitude if you want better accuracy.
 
 **Caution**: The quantum algorithm has a low overhead but is exponential time. The classical algorithm has a high overhead but is polynomial time to generate *one* sample. However, since we are plotting the whole (exponentially large) distribution, the specific work we are doing is actually exponential time, so the classical 
@@ -31,6 +31,9 @@ algorithm to generate te distribution plot is basically exponential time with hi
 1. `qiskit` v1.0.2 or later + `qiskit-aer` v0.14.1 or later.
 2. `numpy` v1.26.3 or later.
 3. `matplotlib` v3.8.0 or later.
+
+## Future work
+The current repository is meant to get a visual comparison between the circuit distribution and the classical approximation. There is an implementation in `classical.py` which can do the sampling if the `-s` flag is turned on. However, it runs extremely slowly and can burn your computer up with just 3 qubits. There are probably some optimizations one can do to speed it up, by avoiding repeated work on the `cumulative_sum()` function. There is no quantum implementation since that is the trivial part, but if one wishes to do this it can be done on qiskit `Aer` via the `measure()` function in a couple of lines.
 
 ## Notes
 This repository was created as part of my work in the MIT 8.371 (Quantum Information Science II) final project for Spring 2024.

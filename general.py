@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
         while not pairs_generated:
             if len(CS_pairs) < 1 and N > 1:
-                print("No CS pairs generated!")
+                print("No CS pairs generated!") # edge case: for very small qubits: post-select on having at least 1 CS gate
                 T_powers, CS_powers, CS_pairs = circuit_parameters(N, PROB_CS)
                 continue
             else:
@@ -91,7 +91,7 @@ if __name__ == '__main__':
         axs[1].set_xlabel(f"Time = {round(classical_elapsed, 2)} s")
 
         if iter == 0:
-            plt.suptitle(fr"n = {N}, $\delta$ = {DELTA}, $\epsilon$ = {EPSILON}, scaling = {round(1+ELL, 3)}")
+            plt.suptitle(fr"n = {N}, $\delta$ = {DELTA}, $\epsilon$ = {EPSILON}, scaling = {round(3+3*ELL, 3)}")
 
         # Adjust layout
         plt.tight_layout()

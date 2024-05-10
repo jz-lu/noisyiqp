@@ -13,11 +13,13 @@ import matplotlib.pyplot as plt
 from constants import *
 from generator import circuit_parameters
 
-print(f"ell = {ELL}")
+print(f"ell = {round(ELL, 3)}, scaling = {round(3 * ELL + 3, 3)}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sparse IQP circuit sampling")
     parser.add_argument("N", type=int, help="Number of qubits")
+    parser.add_argument("--sample", "-s", action="store_true", help="Sample from the distribution instead of output it")
+    parser.add_argument("--nsamples", "-n", type=int, default=1, help="Number of samples")
     return parser.parse_args()
 
 def generate_bitstrings(n):
@@ -33,6 +35,27 @@ def generate_bitstrings(n):
 
     bitstrings = generate_bitstrings_helper('')
     return np.array([[int(bit) for bit in bitstring] for bitstring in bitstrings])
+
+def prepend_vector_to_rows(matrix, vector, append=False):
+    """
+    Prepends `vector` repeatedly to each row of `matrix`. 
+    If `append` is True, then appends instead of prepends.
+    Example:
+        matrix = [[1, 2, 3], 
+                  [4, 5, 6]]
+        vector = [7, 8]
+        output = [[7, 8, 1, 2, 3]
+                  [7, 8, 4, 5, 6]]
+    """
+    # Repeat the vector for each row of the matrix
+    repeated_vector = np.tile(vector, (matrix.shape[0], 1))
+    # Concatenate the matrix and the repeated vector along the second axis
+    result = None
+    if append:
+        result = np.concatenate((matrix, repeated_vector), axis=1)
+    else:
+        result = np.concatenate((repeated_vector, matrix), axis=1)
+    return result
 
 def wt_bdd_strings(n, bound):
     """
@@ -76,9 +99,9 @@ def approximate_fourier(s, n, T_powers, CS_powers, CS_pairs):
         * s (np.array): Fourier index
         * n: number of qubits
     """
-    zeta = 5 * n
+    zeta = 5 * n # corresponding to failure probability 2^(-5n)
     eta = int(n ** (ELL) / DELTA**2)
-    repetitions = npr.randint(2, size=(zeta, eta, n)) # zeta x eta matrix of bitstrings
+    repetitions = npr.randint(2, size=(zeta, eta, n)) # zeta x eta matrix of bitstrings (not same eta and zeta as in paper!)
 
     # Write a function that calculates f*(y) f(y + s) and vectorize it
     eval = lambda x: np.conjugate(f(x, T_powers, CS_powers, CS_pairs)) * f(x + s, T_powers, CS_powers, CS_pairs)
@@ -106,25 +129,41 @@ def approximate_distribution(n, T_powers, CS_powers, CS_pairs):
     distribution = np.real(phases @ (fourier_coeffs * wts)) # (2^n x L) times (L x 1) -> (2^n x 1)
     return distribution
 
-def cumulative_sum(fake_dist, y):
+def cumulative_sum(n, y, T_powers, CS_powers, CS_pairs):
     """
-    Calculate marginal events (cumulative sums) from the fake distribution
+    Calculate Sy = \sum_{x: x[:k] == y} \widetilde{p}_\epsilon(x).
     """
-    pass
+    assert 0 <= len(y) <= n, f"y = {y} is too long!"
+    q = lambda s: approximate_fourier(s, n, T_powers, CS_powers, CS_pairs)
+    k = len(y)
+    if k == 0: # empty string case, sum whole distribution
+        return q(np.zeros(n)) * 2**(n) # just Fourier coefficient at s = 0, times 2^n
+    else:
+        s_vals = wt_bdd_strings(k, ELL) # (some) L' x k
+        padded_s_vals = prepend_vector_to_rows(s_vals, np.zeros(n-k), append=True)
+        s_dot_y = s_vals @ y
+        phases = (-1) ** s_dot_y # L' x 1
+        fourier_coeffs = np.apply_along_axis(q, axis=1, arr=padded_s_vals) # L' x 1
+        wts = (1-EPSILON) ** np.sum(s_vals, axis=1) # L' x 1 exponentiated Hamming weights
+        return np.real(np.dot(phases, fourier_coeffs * wts)) * 2**(n-k)
 
-def marginal_2_sample(n, nsamples, cumsum, total):
+def marginal_2_sample(n, nsamples, T_powers, CS_powers, CS_pairs):
     """
     Algorithm to approximately sample from the distribution, given cumulative marginals
     Paramteres: 
         * n = number of qubits
         * nsamples = number of samples
-        * cumsum = function calculating cumulative marginal sums prefixed by argument
-        * total = sum of entire distribution
+        * distribution = 
     
     returns: vector of size `nsamples`, the approximate samples from the distribution
     """
     samples = np.zeros((nsamples, n))
+    cumsum = lambda y: cumulative_sum(n, y, T_powers, CS_powers, CS_pairs)
+    print("ready")
+    total = cumsum([]) # sum of entire approximate distribution
+
     for idx in range(nsamples):
+        print(f"Sampling iteration [{idx+1}]")
         y = []
         Sy = total
 
@@ -141,7 +180,7 @@ def marginal_2_sample(n, nsamples, cumsum, total):
         
         samples[idx,:] = np.array(y)
     
-    return samples
+    return samples.astype(int)
 
 if __name__ == '__main__':
     args = parse_args()
@@ -150,22 +189,34 @@ if __name__ == '__main__':
     T_powers, CS_powers, CS_pairs = circuit_parameters(N, PROB_CS)
     if len(CS_pairs) < 1:
         print(CS_pairs)
-        print("No CS pairs generated!")
+        print("No CS pairs generated!") # edge case: for very small qubits: post-select on having at least 1 CS gate
         exit(0)
 
-    # Get the distribution and plot it
-    start_time = time.time()
-    distribution = approximate_distribution(N, T_powers, CS_powers, CS_pairs)
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    
-    hours = int(elapsed_time // 3600)
-    minutes = int((elapsed_time % 3600) // 60)
-    seconds = int(elapsed_time % 60)
-    print("Time taken:", hours, "hours,", minutes, "minutes,", seconds, "seconds")
+    if args.sample:
+        # Return a sample from the distribution
+        print("Starting the sampling")
+        nsamples = args.nsamples
+        samples = marginal_2_sample(N, nsamples, T_powers, CS_powers, CS_pairs)
+        np.save(f"ClassicalSamples_{N}QB.npy", samples)
+        print("===== Samples =====")
+        for i, sample in enumerate(samples):
+            print(f"({i+1}) {sample}")
+        print("===================")
 
-    # Plot the distribution
-    # plt.bar(range(2**N), distribution)
-    # plt.show()
+    else:
+        # Get the distribution and plot it
+        start_time = time.time()
+        distribution = approximate_distribution(N, T_powers, CS_powers, CS_pairs)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        
+        hours = int(elapsed_time // 3600)
+        minutes = int((elapsed_time % 3600) // 60)
+        seconds = int(elapsed_time % 60)
+        print("Time taken:", hours, "hours,", minutes, "minutes,", seconds, "seconds")
+
+        # Plot the distribution
+        plt.bar(range(2**N), distribution)
+        plt.show()
 
     
